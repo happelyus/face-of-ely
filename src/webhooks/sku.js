@@ -101,42 +101,46 @@ function assembleSkuCode(item) {
   const attributeSegments = [];
 
   for (const colValue of item.column_values) {
+    // Log every column value we see
+    console.log(`Column: ${colValue.id} type: ${colValue.type}`);
+
     if (colValue.type !== 'board_relation') continue;
 
     const linkedItems = colValue.linked_items;
+    console.log(`Board relation column ${colValue.id} has ${linkedItems?.length ?? 0} linked items`);
+
     if (!linkedItems || linkedItems.length === 0) continue;
 
     const linkedItem = linkedItems[0];
+    console.log(`Linked item board ID: ${linkedItem.board?.id}, name: ${linkedItem.name}`);
 
-    // Build a title map for the linked item's board columns
     const linkedBoardColumnTitleMap = {};
     for (const col of (linkedItem.board?.columns ?? [])) {
       linkedBoardColumnTitleMap[col.id] = col.title;
     }
 
-    // Find the "code" field by looking up each column value's title
-    // from the linked board's column list
     const codeField = linkedItem.column_values.find(
       cv => linkedBoardColumnTitleMap[cv.id]?.toLowerCase() === 'code'
     );
+    console.log(`Code field found: ${codeField?.text ?? 'none'}`);
 
-    // Check if this connection points to any of the Attribute Library boards
     const isAttributeLibraryConnection = ATTRIBUTE_LIBRARY_BOARD_IDS
       .includes(String(linkedItem.board?.id));
+    console.log(`Is attribute library: ${isAttributeLibraryConnection}`);
 
     if (!isAttributeLibraryConnection) {
-      // Treat as the Product connection — extract its code field
       if (codeField?.text) productCode = codeField.text;
       continue;
     }
 
-    // Attribute Library connection — extract the subitem code
     if (!codeField?.text) continue;
 
     const columnTitle = columnTitleMap[colValue.id] ?? colValue.id;
     const columnRef = deriveColumnRef(columnTitle);
     attributeSegments.push(`${columnRef}_${codeField.text}`);
   }
+
+  console.log(`Product code: ${productCode}, segments: ${JSON.stringify(attributeSegments)}`);
 
   if (!productCode) return null;
 
