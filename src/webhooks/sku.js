@@ -101,18 +101,12 @@ function assembleSkuCode(item) {
   const attributeSegments = [];
 
   for (const colValue of item.column_values) {
-    // Log every column value we see
-    console.log(`Column: ${colValue.id} type: ${colValue.type}`);
-
     if (colValue.type !== 'board_relation') continue;
 
     const linkedItems = colValue.linked_items;
-    console.log(`Board relation column ${colValue.id} has ${linkedItems?.length ?? 0} linked items`);
-
     if (!linkedItems || linkedItems.length === 0) continue;
 
     const linkedItem = linkedItems[0];
-    console.log(`Linked item board ID: ${linkedItem.board?.id}, name: ${linkedItem.name}`);
 
     const linkedBoardColumnTitleMap = {};
     for (const col of (linkedItem.board?.columns ?? [])) {
@@ -122,11 +116,9 @@ function assembleSkuCode(item) {
     const codeField = linkedItem.column_values.find(
       cv => linkedBoardColumnTitleMap[cv.id]?.toLowerCase() === 'code'
     );
-    console.log(`Code field found: ${codeField?.text ?? 'none'}`);
 
     const isAttributeLibraryConnection = ATTRIBUTE_LIBRARY_BOARD_IDS
       .includes(String(linkedItem.board?.id));
-    console.log(`Is attribute library: ${isAttributeLibraryConnection}`);
 
     if (!isAttributeLibraryConnection) {
       if (codeField?.text) productCode = codeField.text;
@@ -139,8 +131,6 @@ function assembleSkuCode(item) {
     const columnRef = deriveColumnRef(columnTitle);
     attributeSegments.push(`${columnRef}_${codeField.text}`);
   }
-
-  console.log(`Product code: ${productCode}, segments: ${JSON.stringify(attributeSegments)}`);
 
   if (!productCode) return null;
 
@@ -165,6 +155,26 @@ async function writeSkuCode(boardId, itemId, columnId, skuCode) {
     itemId: String(itemId),
     columnId,
     value: JSON.stringify(skuCode),
+  });
+}
+
+async function updateItemName(boardId, itemId, name) {
+  const mutation = `
+    mutation ($boardId: ID!, $itemId: ID!, $name: String!) {
+      change_item_name(
+        board_id: $boardId
+        item_id: $itemId
+        value: $name
+      ) {
+        id
+        name
+      }
+    }
+  `;
+  await mondayQuery(mutation, {
+    boardId: String(boardId),
+    itemId: String(itemId),
+    name,
   });
 }
 
@@ -204,8 +214,14 @@ export async function skuWebhookHandler(req, res) {
       return;
     }
 
+    // Write SKU code to the SKU Code column
     await writeSkuCode(boardId, itemId, skuCodeColumnId, skuCode);
     console.log(`Item ${itemId}: SKU written → ${skuCode}`);
+
+    // Update item name to match SKU code
+    await updateItemName(boardId, itemId, skuCode);
+    console.log(`Item ${itemId}: name updated → ${skuCode}`);
+
   } catch (err) {
     console.error(`Error processing item ${itemId}:`, err.message);
   }
