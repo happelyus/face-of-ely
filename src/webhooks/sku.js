@@ -68,10 +68,14 @@ async function fetchItemData(itemId) {
               board {
                 id
                 name
+                columns {
+                  id
+                  title
+                  type
+                }
               }
               column_values {
                 id
-                title
                 type
                 text
               }
@@ -104,23 +108,29 @@ function assembleSkuCode(item) {
 
     const linkedItem = linkedItems[0];
 
+    // Build a title map for the linked item's board columns
+    const linkedBoardColumnTitleMap = {};
+    for (const col of (linkedItem.board?.columns ?? [])) {
+      linkedBoardColumnTitleMap[col.id] = col.title;
+    }
+
+    // Find the "code" field by looking up each column value's title
+    // from the linked board's column list
+    const codeField = linkedItem.column_values.find(
+      cv => linkedBoardColumnTitleMap[cv.id]?.toLowerCase() === 'code'
+    );
+
     // Check if this connection points to any of the Attribute Library boards
     const isAttributeLibraryConnection = ATTRIBUTE_LIBRARY_BOARD_IDS
       .includes(String(linkedItem.board?.id));
 
     if (!isAttributeLibraryConnection) {
       // Treat as the Product connection — extract its code field
-      const codeField = linkedItem.column_values.find(
-        cv => cv.title?.toLowerCase() === 'code'
-      );
       if (codeField?.text) productCode = codeField.text;
       continue;
     }
 
     // Attribute Library connection — extract the subitem code
-    const codeField = linkedItem.column_values.find(
-      cv => cv.title?.toLowerCase() === 'code'
-    );
     if (!codeField?.text) continue;
 
     const columnTitle = columnTitleMap[colValue.id] ?? colValue.id;
