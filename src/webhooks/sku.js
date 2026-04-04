@@ -1,7 +1,6 @@
 const MONDAY_API_URL = 'https://api.monday.com/v2';
 const SKU_CODE_COLUMN_TITLE = process.env.SKU_CODE_COLUMN_TITLE || 'SKU Code';
 
-// Validate required environment variables on startup
 if (!process.env.MONDAY_API_TOKEN) {
   throw new Error('MONDAY_API_TOKEN environment variable is required');
 }
@@ -9,7 +8,6 @@ if (!process.env.ATTRIBUTE_LIBRARY_BOARD_IDS) {
   throw new Error('ATTRIBUTE_LIBRARY_BOARD_IDS environment variable is required');
 }
 
-// Parse the comma-separated list of Attribute Library board IDs
 const ATTRIBUTE_LIBRARY_BOARD_IDS = process.env.ATTRIBUTE_LIBRARY_BOARD_IDS
   .split(',')
   .map(id => id.trim());
@@ -161,9 +159,10 @@ async function writeSkuCode(boardId, itemId, columnId, skuCode) {
 async function updateItemName(boardId, itemId, name) {
   const mutation = `
     mutation ($boardId: ID!, $itemId: ID!, $name: String!) {
-      change_item_name(
+      change_simple_column_value(
         board_id: $boardId
         item_id: $itemId
+        column_id: "name"
         value: $name
       ) {
         id
@@ -181,7 +180,6 @@ async function updateItemName(boardId, itemId, name) {
 export async function skuWebhookHandler(req, res) {
   const body = req.body;
 
-  // Handle Monday's challenge verification on webhook registration
   if (body.challenge) {
     return res.json({ challenge: body.challenge });
   }
@@ -191,21 +189,18 @@ export async function skuWebhookHandler(req, res) {
 
   const { pulseId: itemId, boardId, columnId } = event;
 
-  // Respond to Monday immediately — processing continues async
   res.sendStatus(200);
 
   try {
     const item = await fetchItemData(itemId);
     if (!item) return;
 
-    // Find the SKU Code column ID dynamically from this board's columns
     const skuCodeColumnId = findSkuCodeColumnId(item.board.columns);
     if (!skuCodeColumnId) {
       console.log(`Item ${itemId}: no "${SKU_CODE_COLUMN_TITLE}" column found on board ${boardId}`);
       return;
     }
 
-    // Loop prevention — don't reprocess when SKU Code column itself changes
     if (columnId === skuCodeColumnId) return;
 
     const skuCode = assembleSkuCode(item);
@@ -214,11 +209,9 @@ export async function skuWebhookHandler(req, res) {
       return;
     }
 
-    // Write SKU code to the SKU Code column
     await writeSkuCode(boardId, itemId, skuCodeColumnId, skuCode);
     console.log(`Item ${itemId}: SKU written → ${skuCode}`);
 
-    // Update item name to match SKU code
     await updateItemName(boardId, itemId, skuCode);
     console.log(`Item ${itemId}: name updated → ${skuCode}`);
 
