@@ -1,4 +1,5 @@
 const MONDAY_API_URL = 'https://api.monday.com/v2';
+const SKU_CODE_COLUMN_TITLE = process.env.SKU_CODE_COLUMN_TITLE || 'SKU Code';
 
 // Validate required environment variables on startup
 if (!process.env.MONDAY_API_TOKEN) {
@@ -7,11 +8,6 @@ if (!process.env.MONDAY_API_TOKEN) {
 if (!process.env.ATTRIBUTE_LIBRARY_BOARD_IDS) {
   throw new Error('ATTRIBUTE_LIBRARY_BOARD_IDS environment variable is required');
 }
-if (!process.env.SKU_CODE_COLUMN_ID) {
-  throw new Error('SKU_CODE_COLUMN_ID environment variable is required');
-}
-
-const SKU_CODE_COLUMN_ID = process.env.SKU_CODE_COLUMN_ID;
 
 // Parse the comma-separated list of Attribute Library board IDs
 const ATTRIBUTE_LIBRARY_BOARD_IDS = process.env.ATTRIBUTE_LIBRARY_BOARD_IDS
@@ -38,6 +34,13 @@ function deriveColumnRef(title) {
     .split(' ')
     .map(word => word[0].toUpperCase())
     .join('');
+}
+
+function findSkuCodeColumnId(boardColumns) {
+  const col = boardColumns.find(
+    c => c.title === SKU_CODE_COLUMN_TITLE && c.type === 'text'
+  );
+  return col?.id ?? null;
 }
 
 async function fetchItemData(itemId) {
@@ -130,13 +133,13 @@ function assembleSkuCode(item) {
   return [productCode, ...attributeSegments].join('-');
 }
 
-async function writeSkuCode(boardId, itemId, skuCode) {
+async function writeSkuCode(boardId, itemId, columnId, skuCode) {
   const mutation = `
-    mutation ($boardId: ID!, $itemId: ID!, $value: JSON!) {
+    mutation ($boardId: ID!, $itemId: ID!, $columnId: String!, $value: JSON!) {
       change_column_value(
         board_id: $boardId
         item_id: $itemId
-        column_id: "${SKU_CODE_COLUMN_ID}"
+        column_id: $columnId
         value: $value
       ) {
         id
@@ -146,6 +149,7 @@ async function writeSkuCode(boardId, itemId, skuCode) {
   await mondayQuery(mutation, {
     boardId: String(boardId),
     itemId: String(itemId),
+    columnId,
     value: JSON.stringify(skuCode),
   });
 }
@@ -163,9 +167,6 @@ export async function skuWebhookHandler(req, res) {
 
   const { pulseId: itemId, boardId, columnId } = event;
 
-  // Loop prevention — don't reprocess when the SKU Code column itself changes
-  if (columnId === SKU_CODE_COLUMN_ID) return res.sendStatus(200);
-
   // Respond to Monday immediately — processing continues async
   res.sendStatus(200);
 
@@ -173,13 +174,23 @@ export async function skuWebhookHandler(req, res) {
     const item = await fetchItemData(itemId);
     if (!item) return;
 
+    // Find the SKU Code column ID dynamically from this board's columns
+    const skuCodeColumnId = findSkuCodeColumnId(item.board.columns);
+    if (!skuCodeColumnId) {
+      console.log(`Item ${itemId}: no "${SKU_CODE_COLUMN_TITLE}" column found on board ${boardId}`);
+      return;
+    }
+
+    // Loop prevention — don't reprocess when SKU Code column itself changes
+    if (columnId === skuCodeColumnId) return;
+
     const skuCode = assembleSkuCode(item);
     if (!skuCode) {
       console.log(`Item ${itemId}: no product linked, skipping`);
       return;
     }
 
-    await writeSkuCode(boardId, itemId, skuCode);
+    await writeSkuCode(boardId, itemId, skuCodeColumnId, skuCode);
     console.log(`Item ${itemId}: SKU written → ${skuCode}`);
   } catch (err) {
     console.error(`Error processing item ${itemId}:`, err.message);
